@@ -12,23 +12,13 @@ export interface OptimizedResume {
   name: string;
   contact: string;
   summary: string;
-  experience: {
-    title: string;
-    company: string;
-    duration: string;
-    bullets: string[];
-  }[];
-  education: {
-    degree: string;
-    school: string;
-    year: string;
-  }[];
-  skills: string[];
-  projects: {
-    name: string;
-    description: string;
-    bullets: string[];
-  }[];
+  technicalSkills: { category: string; skills: string[] }[];
+  internships: { title: string; company: string; duration: string; bullets: string[] }[];
+  projects: { name: string; subtitle: string; link: string; bullets: string[]; techStack?: string }[];
+  education: { school: string; degree: string; duration: string; gpa: string }[];
+  certifications: string[];
+  interests: string[];
+  templateId: 'template_1' | 'template_2';
 }
 
 export interface AnalysisResult {
@@ -127,13 +117,77 @@ export interface UserPreferences {
   preferredTemplate: string;
 }
 
+export const RESUME_TEMPLATES = {
+  template_1: `
+[FULL NAME]
+[LOCATION] — [PHONE]
+[EMAIL]
+[LINKS: LinkedIn, Github, Portfolio, etc.]
+
+Professional Summary
+[A compelling 3-4 sentence summary highlighting key achievements and alignment with the JD.]
+
+Technical Skills
+• [CATEGORY 1]: [SKILL 1], [SKILL 2], ...
+• [CATEGORY 2]: [SKILL 1], [SKILL 2], ...
+...
+
+Projects
+[PROJECT NAME] [LINK]
+[PUBLISHED INFO / SUBTITLE]
+• [Impactful bullet point using action verbs and metrics]
+• [Impactful bullet point using action verbs and metrics]
+...
+
+Education
+[UNIVERSITY NAME]
+[DEGREE NAME] [DATES]
+[CGPA/GPA]
+
+Certifications
+• [CERTIFICATION NAME]
+...
+
+Interests
+• [INTEREST 1], [INTEREST 2]
+`,
+  template_2: `
+[FULL NAME]
+[LOCATION] | [EMAIL] | [PHONE] |
+[LINKS: LinkedIn, Github, Portfolio, etc.]
+
+Summary
+[A concise summary focused on technical expertise and value proposition.]
+
+Technical Skills
+• [CATEGORY 1]: [SKILL 1], [SKILL 2], ...
+• [CATEGORY 2]: [SKILL 1], [SKILL 2], ...
+...
+
+Projects
+[PROJECT NAME] [LINK]
+[PUBLISHED INFO / SUBTITLE]
+Tech Stack: [List of technologies used]
+• [Impactful bullet point using action verbs and metrics]
+• [Impactful bullet point using action verbs and metrics]
+...
+
+Education
+• [UNIVERSITY NAME]: [DEGREE NAME] [DATES]
+[CGPA/GPA]
+
+Certifications
+• [CERTIFICATION NAME]
+...
+`
+};
+
 export async function optimizeResume(
   resumeText: string, 
   jdText: string, 
   analysis: AnalysisResult,
   preferences?: UserPreferences
 ): Promise<OptimizedResume> {
-  const tone = preferences?.preferredTone || "Professional";
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: [
@@ -141,57 +195,63 @@ export async function optimizeResume(
         role: "user",
         parts: [
           {
-            text: `You are an expert Resume Optimizer. 
-            Rewrite the following Resume to achieve a high ATS score (above 90) for the provided Job Description.
-            
-            ORIGINAL RESUME:
-            ${resumeText}
-            
-            JOB DESCRIPTION:
-            ${jdText}
-            
-            ANALYSIS RESULTS:
-            - Missing Skills: ${analysis.missingSkills.join(", ")}
-            - Suggestions: ${analysis.suggestions}
-            
-            INSTRUCTIONS:
-            1. Rewrite bullet points using strong action verbs (e.g., "Developed", "Spearheaded", "Optimized").
-            2. Incorporate missing skills naturally where relevant.
-            3. Align content with JD keywords.
-            4. Keep the structure professional and concise.
-            5. Use a ${tone} tone throughout the resume.
-            6. Return the optimized content in JSON format.
-            
-            SCHEMA:
-            {
-              "name": "Full Name",
-              "contact": "Email | Phone | LinkedIn",
-              "summary": "Professional summary optimized for the JD",
-              "experience": [
-                {
-                  "title": "Job Title",
-                  "company": "Company Name",
-                  "duration": "Dates",
-                  "bullets": ["Action-oriented bullet points..."]
-                }
-              ],
-              "education": [
-                {
-                  "degree": "Degree Name",
-                  "school": "University Name",
-                  "year": "Graduation Year"
-                }
-              ],
-              "skills": ["List of technical and soft skills"],
-              "projects": [
-                {
-                  "name": "Project Name",
-                  "description": "Brief description",
-                  "bullets": ["Action-oriented bullet points..."]
-                }
-              ]
-            }
-            `
+            text: `You are an expert ATS resume optimizer and recruiter.
+
+Your task is to improve a candidate's resume based on a given job description and ATS analysis.
+
+IMPORTANT RULES:
+1. You MUST strictly use ONLY the provided resume structure.
+2. Do NOT add fake experience or skills.
+3. Only include skills that are relevant and can be reasonably inferred.
+4. The section order MUST be: Summary, Technical Skills, Internships (if any), Projects, Education, Certifications, Interests.
+
+INPUTS:
+1. Original Resume:
+${resumeText}
+
+2. Job Description:
+${jdText}
+
+3. Missing Skills Identified:
+${analysis.missingSkills.join(", ")}
+
+4. ATS Score:
+${analysis.atsScore}
+
+TASK:
+- Analyze the resume against the job description.
+- Select the MOST suitable template style (Template 1: Classic with em-dash, Template 2: Modern with pipes).
+- Rewrite the resume content to maximize ATS score (target >85%).
+- If the current ATS score is less than 85, you MUST:
+  1. Add the missing technical skills identified from the JD to the 'Technical Skills' section.
+  2. Add ONE new project to the 'Projects' section that specifically demonstrates the use of these new technical skills from the JD. Ensure this project is realistic based on the candidate's background.
+- Improve bullet points using strong action verbs.
+- Align skills with job description keywords.
+
+OUTPUT REQUIREMENTS:
+- Return the optimized resume in JSON format matching the schema below.
+
+SCHEMA:
+{
+  "name": "Full Name",
+  "contact": "Location | Email | Phone | Links",
+  "summary": "3-4 sentence professional summary",
+  "technicalSkills": [
+    { "category": "Programming Languages", "skills": ["Python", "Java"] }
+  ],
+  "internships": [
+    { "title": "Role", "company": "Company", "duration": "Dates", "bullets": ["..."] }
+  ],
+  "projects": [
+    { "name": "Project Name", "subtitle": "Subtitle/Journal", "link": "URL", "bullets": ["..."], "techStack": "Optional tech list" }
+  ],
+  "education": [
+    { "school": "University", "degree": "Degree", "duration": "Dates", "gpa": "CGPA: X.X" }
+  ],
+  "certifications": ["Cert 1", "Cert 2"],
+  "interests": ["Interest 1", "Interest 2"],
+  "templateId": "template_1" or "template_2"
+}`
           }
         ]
       }
@@ -204,7 +264,18 @@ export async function optimizeResume(
           name: { type: Type.STRING },
           contact: { type: Type.STRING },
           summary: { type: Type.STRING },
-          experience: {
+          technicalSkills: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                category: { type: Type.STRING },
+                skills: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: ["category", "skills"]
+            }
+          },
+          internships: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
@@ -212,38 +283,43 @@ export async function optimizeResume(
                 title: { type: Type.STRING },
                 company: { type: Type.STRING },
                 duration: { type: Type.STRING },
-                bullets: { type: Type.ARRAY, items: { type: Type.STRING } },
+                bullets: { type: Type.ARRAY, items: { type: Type.STRING } }
               },
-              required: ["title", "company", "duration", "bullets"],
-            },
+              required: ["title", "company", "duration", "bullets"]
+            }
           },
-          education: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                degree: { type: Type.STRING },
-                school: { type: Type.STRING },
-                year: { type: Type.STRING },
-              },
-              required: ["degree", "school", "year"],
-            },
-          },
-          skills: { type: Type.ARRAY, items: { type: Type.STRING } },
           projects: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
               properties: {
                 name: { type: Type.STRING },
-                description: { type: Type.STRING },
+                subtitle: { type: Type.STRING },
+                link: { type: Type.STRING },
                 bullets: { type: Type.ARRAY, items: { type: Type.STRING } },
+                techStack: { type: Type.STRING }
               },
-              required: ["name", "description", "bullets"],
-            },
+              required: ["name", "subtitle", "link", "bullets"]
+            }
           },
+          education: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                school: { type: Type.STRING },
+                degree: { type: Type.STRING },
+                duration: { type: Type.STRING },
+                gpa: { type: Type.STRING }
+              },
+              required: ["school", "degree", "duration", "gpa"]
+            }
+          },
+          certifications: { type: Type.ARRAY, items: { type: Type.STRING } },
+          interests: { type: Type.ARRAY, items: { type: Type.STRING } },
+          templateId: { type: Type.STRING, enum: ["template_1", "template_2"] }
         },
-        required: ["name", "contact", "summary", "experience", "education", "skills", "projects"]
+        required: ["name", "contact", "summary", "technicalSkills", "internships", "projects", "education", "certifications", "interests", "templateId"]
       }
     }
   });
