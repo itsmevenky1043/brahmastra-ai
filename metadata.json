@@ -1,5 +1,5 @@
 {
   "name": "Brahmastra AI",
-  "description": "Brahmastra AI – Resume Analyzer & ATS Optimizer. Professional ATS score checker and resume optimizer powered by Gemini AI.",
+  "description": "AI-powered ATS Resume Analyzer that matches resumes with job descriptions, calculates scores, and generates optimized resumes.",
   "requestFramePermissions": []
 }
