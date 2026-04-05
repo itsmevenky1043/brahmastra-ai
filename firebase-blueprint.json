@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "AnalysisHistory": {
+      "title": "AnalysisHistory",
+      "description": "Stores the history of resume analysis and optimization results.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user who performed the analysis." },
+        "resumeName": { "type": "string", "description": "The name of the resume file." },
+        "jdText": { "type": "string", "description": "The job description text." },
+        "atsScore": { "type": "number", "description": "The ATS score calculated." },
+        "matchPercentage": { "type": "number", "description": "The match percentage." },
+        "skillMatch": { "type": "number", "description": "The skill match percentage." },
+        "keywordMatch": { "type": "number", "description": "The keyword match percentage." },
+        "resumeQuality": { "type": "number", "description": "The resume quality score." },
+        "missingSkills": { "type": "array", "items": { "type": "string" } },
+        "extractedSkills": { "type": "array", "items": { "type": "string" } },
+        "jdSkills": { "type": "array", "items": { "type": "string" } },
+        "suggestions": { "type": "string", "description": "The optimization suggestions." },
+        "summary": { "type": "array", "items": { "type": "string" }, "description": "Key bullet points summarizing the match." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "The time the analysis was performed." },
+        "optimizedResume": { "type": "object", "description": "The optimized resume data, if available." }
+      },
+      "required": ["userId", "resumeName", "atsScore", "timestamp"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Stores user preferences and account settings.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "preferredTone": { "type": "string", "enum": ["Professional", "Creative", "Academic", "Modern"] },
+        "preferredTemplate": { "type": "string", "enum": ["Standard", "Minimal", "Bold"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId"]
+    }
+  },
+  "firestore": {
+    "/analyses/{analysisId}": {
+      "schema": "AnalysisHistory",
+      "description": "Collection of analysis history documents."
+    },
+    "/profiles/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and preferences."
+    }
+  }
+}

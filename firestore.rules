@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: analyses
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required, must match authenticated user)
+    //   - resumeName: string (required)
+    //   - jdText: string (optional)
+    //   - atsScore: number (required)
+    //   - matchPercentage: number (optional)
+    //   - skillMatch: number (optional)
+    //   - keywordMatch: number (optional)
+    //   - resumeQuality: number (optional)
+    //   - missingSkills: list (optional)
+    //   - extractedSkills: list (optional)
+    //   - jdSkills: list (optional)
+    //   - suggestions: string (optional)
+    //   - summary: string (optional)
+    //   - timestamp: timestamp (required)
+    //   - optimizedResume: map (optional)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidAnalysis(data) {
+      return data.userId is string &&
+             data.resumeName is string &&
+             data.atsScore is number &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidProfile(data) {
+      return data.userId is string &&
+             (!('preferredTone' in data) || data.preferredTone in ["Professional", "Creative", "Academic", "Modern"]) &&
+             (!('preferredTemplate' in data) || data.preferredTemplate in ["Standard", "Minimal", "Bold"]);
+    }
+
+    match /analyses/{analysisId} {
+      // Users can only read their own analysis history
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only create analysis history for themselves
+      allow create: if isAuthenticated() && 
+                    isOwner(request.resource.data.userId) && 
+                    isValidAnalysis(request.resource.data);
+      
+      // Analysis history is immutable once created
+      allow update, delete: if false;
+    }
+
+    match /profiles/{userId} {
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow write: if isAuthenticated() && isOwner(userId) && isValidProfile(request.resource.data);
+    }
+  }
+}
