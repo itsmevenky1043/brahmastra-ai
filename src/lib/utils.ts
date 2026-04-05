@@ -7,21 +7,27 @@ export function cn(...inputs: ClassValue[]) {
 
 export async function parsePdf(file: File): Promise<string> {
   const pdfjs = await import('pdfjs-dist');
-  // Set worker source
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+  // Set worker source using a more robust unpkg link
+  const version = pdfjs.version || '5.6.205';
+  pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${version}/build/pdf.worker.min.mjs`;
 
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-  let fullText = '';
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
 
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const textContent = await page.getTextContent();
-    const pageText = textContent.items.map((item: any) => item.str).join(' ');
-    fullText += pageText + '\n';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += pageText + '\n';
+    }
+
+    return fullText;
+  } catch (err: any) {
+    console.error('PDF parsing error:', err);
+    throw new Error(`Failed to parse PDF: ${err.message || 'Unknown error'}`);
   }
-
-  return fullText;
 }
 
 export async function parseDocx(file: File): Promise<string> {

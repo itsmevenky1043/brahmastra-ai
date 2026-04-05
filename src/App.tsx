@@ -244,8 +244,9 @@ export default function App() {
         await saveAnalysis(analysis);
       }
     } catch (err: any) {
-      console.error(err);
-      setError('Failed to analyze resume. Please try again.');
+      console.error('Analysis error:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setError(`Failed to analyze resume: ${errorMessage}`);
     } finally {
       setIsAnalyzing(false);
     }

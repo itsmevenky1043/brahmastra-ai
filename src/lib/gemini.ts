@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+const ai = new GoogleGenAI({ apiKey });
 
 export interface SectionBreakdown {
   section: string;
@@ -45,6 +46,10 @@ export interface AnalysisResult {
 }
 
 export async function analyzeResume(resumeText: string, jdText: string): Promise<AnalysisResult> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new Error('API Key is not configured. Please set GEMINI_API_KEY or GOOGLE_API_KEY in your environment variables.');
+  }
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: [
