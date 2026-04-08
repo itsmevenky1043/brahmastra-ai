@@ -271,12 +271,24 @@ export default function App() {
   };
 
   const pollJob = async (queue: 'analysis' | 'optimization', jobId: string): Promise<any> => {
-    if (jobId === 'cached') return null; // Result will be returned directly in the first call if cached
+    if (jobId === 'cached') return null;
+
+    let attempts = 0;
+    const maxAttempts = 60; // 2 minutes max
 
     return new Promise((resolve, reject) => {
       const interval = setInterval(async () => {
+        attempts++;
+        if (attempts > maxAttempts) {
+          clearInterval(interval);
+          reject(new Error('Job timed out. Please try again.'));
+          return;
+        }
+
         try {
           const res = await fetch(`/api/job/${queue}/${jobId}`);
+          if (!res.ok) throw new Error(`Server error: ${res.status}`);
+          
           const data = await res.json();
 
           if (data.status === 'completed') {
@@ -287,8 +299,12 @@ export default function App() {
             reject(new Error(data.error || 'Job failed'));
           }
         } catch (err) {
-          clearInterval(interval);
-          reject(err);
+          console.error('Polling error:', err);
+          // Don't reject immediately on network error, try a few more times
+          if (attempts > maxAttempts) {
+            clearInterval(interval);
+            reject(err);
+          }
         }
       }, 2000);
     });
@@ -360,19 +376,35 @@ export default function App() {
       setOptimizedResume(optimized);
       setEditedResume(optimized);
 
-      // Re-score the optimized resume
+      // Re-score the optimized resume using the API
       const resumeString = `
         ${optimized.name}
         ${optimized.contact}
         ${optimized.summary}
-        ${optimized.technicalSkills.map(s => `${s.category}: ${s.skills.join(', ')}`).join('\n')}
-        ${optimized.internships.map(i => `${i.title} at ${i.company}\n${i.bullets.join('\n')}`).join('\n')}
-        ${optimized.projects.map(p => `${p.name}\n${p.bullets.join('\n')}`).join('\n')}
-        ${optimized.education.map(e => `${e.degree} from ${e.school}`).join('\n')}
+        ${optimized.technicalSkills.map((s: any) => `${s.category}: ${s.skills.join(', ')}`).join('\n')}
+        ${optimized.internships.map((i: any) => `${i.title} at ${i.company}\n${i.bullets.join('\n')}`).join('\n')}
+        ${optimized.projects.map((p: any) => `${p.name}\n${p.bullets.join('\n')}`).join('\n')}
+        ${optimized.education.map((e: any) => `${e.degree} from ${e.school}`).join('\n')}
         ${optimized.certifications.join('\n')}
         ${optimized.interests.join(', ')}
       `;
-      const analysis = await analyzeResume(resumeString, jd);
+      
+      const resScore = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resumeText: resumeString, jdText: jd }),
+      });
+      
+      const scoreData = await resScore.json();
+      if (scoreData.error) throw new Error(scoreData.error);
+
+      let analysis;
+      if (scoreData.result) {
+        analysis = scoreData.result;
+      } else {
+        analysis = await pollJob('analysis', scoreData.jobId);
+      }
+
       setNewResult(analysis);
       if (user) {
         await saveAnalysis(analysis, optimized);

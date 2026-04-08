@@ -28,27 +28,27 @@ if (host.includes(":")) {
 
 console.log(`[Redis] Attempting connection to ${host}:${port}`);
 
-const redisConfig = {
+// Redis Connections
+const redisOptions = {
   host,
   port,
   password: process.env.REDIS_PASSWORD?.trim(),
   maxRetriesPerRequest: null,
-  // Redis Labs often requires TLS if using port 19621 or similar, 
-  // but we'll stick to standard first as per their "Public endpoint" display.
 };
 
-const connection = new Redis(redisConfig);
+const connection = new Redis(redisOptions);
+const workerConnection = new Redis(redisOptions);
 
-connection.on("connect", () => {
-  console.log(`[Redis] Successfully connected to ${host}:${port}`);
-});
+connection.on("connect", () => console.log(`[Redis] Main connection successful to ${host}:${port}`));
+workerConnection.on("connect", () => console.log(`[Redis] Worker connection successful to ${host}:${port}`));
 
 connection.on("error", (err) => {
-  console.error("[Redis] Connection error:", err.message);
+  console.error("[Redis] Main Error:", err.message);
   if (err.message.includes("ENOTFOUND")) {
     console.error(`[Redis] DNS Error: Could not find host "${host}". Please check if the REDIS_HOST secret is correct and complete.`);
   }
 });
+workerConnection.on("error", (err) => console.error("[Redis] Worker Error:", err.message));
 
 // Queues
 const analysisQueue = new Queue("analysis-queue", { connection });
@@ -134,20 +134,24 @@ app.get("/api/job/:queue/:id", async (req, res) => {
 
 // Workers
 const analysisWorker = new Worker("analysis-queue", async (job) => {
+  console.log(`[Worker] Starting Analysis Job ${job.id}`);
   const { resumeText, jdText } = job.data;
   const result = await analyzeResume(resumeText, jdText);
   
-  // Cache result
   const cacheKey = `analysis:${Buffer.from(resumeText + jdText).toString("base64").substring(0, 50)}`;
-  await connection.setex(cacheKey, 3600, JSON.stringify(result)); // Cache for 1 hour
+  await connection.setex(cacheKey, 3600, JSON.stringify(result));
   
+  console.log(`[Worker] Completed Analysis Job ${job.id}`);
   return result;
-}, { connection });
+}, { connection: workerConnection });
 
 const optimizationWorker = new Worker("optimization-queue", async (job) => {
+  console.log(`[Worker] Starting Optimization Job ${job.id}`);
   const { resumeText, jdText, analysis } = job.data;
-  return await optimizeResume(resumeText, jdText, analysis);
-}, { connection });
+  const result = await optimizeResume(resumeText, jdText, analysis);
+  console.log(`[Worker] Completed Optimization Job ${job.id}`);
+  return result;
+}, { connection: workerConnection });
 
 analysisWorker.on("failed", (job, err) => {
   console.error(`Analysis Job ${job?.id} failed:`, err);
