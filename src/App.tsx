@@ -109,7 +109,23 @@ export default function App() {
           ${editedResume.certifications.join('\n')}
           ${editedResume.interests.join(', ')}
         `;
-        const analysis = await analyzeResume(resumeString, jd);
+        
+        const res = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resumeText: resumeString, jdText: jd }),
+        });
+        
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        let analysis;
+        if (data.result) {
+          analysis = data.result;
+        } else {
+          analysis = await pollJob('analysis', data.jobId);
+        }
+
         setNewResult(analysis);
         setIsEditing(false);
       } catch (err) {
@@ -254,6 +270,30 @@ export default function App() {
     }
   };
 
+  const pollJob = async (queue: 'analysis' | 'optimization', jobId: string): Promise<any> => {
+    if (jobId === 'cached') return null; // Result will be returned directly in the first call if cached
+
+    return new Promise((resolve, reject) => {
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/job/${queue}/${jobId}`);
+          const data = await res.json();
+
+          if (data.status === 'completed') {
+            clearInterval(interval);
+            resolve(data.result);
+          } else if (data.status === 'failed') {
+            clearInterval(interval);
+            reject(new Error(data.error || 'Job failed'));
+          }
+        } catch (err) {
+          clearInterval(interval);
+          reject(err);
+        }
+      }, 2000);
+    });
+  };
+
   const handleAnalyze = async () => {
     if (!file || !jd.trim()) {
       setError('Please provide both a resume and a job description.');
@@ -272,7 +312,22 @@ export default function App() {
       }
       setResumeText(text);
 
-      const analysis = await analyzeResume(text, jd);
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resumeText: text, jdText: jd }),
+      });
+      
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      let analysis;
+      if (data.result) {
+        analysis = data.result;
+      } else {
+        analysis = await pollJob('analysis', data.jobId);
+      }
+
       setResult(analysis);
       if (user) {
         await saveAnalysis(analysis);
@@ -292,7 +347,16 @@ export default function App() {
     setError(null);
 
     try {
-      const optimized = await optimizeResume(resumeText, jd, result, preferences);
+      const res = await fetch('/api/optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resumeText, jdText: jd, analysis: result }),
+      });
+      
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      const optimized = await pollJob('optimization', data.jobId);
       setOptimizedResume(optimized);
       setEditedResume(optimized);
 
@@ -332,7 +396,7 @@ export default function App() {
     let y = 20;
 
     const checkPageBreak = (needed: number) => {
-      if (y + needed > 280) {
+      if (y + needed > 275) { // Leave a bit more space at the bottom
         doc.addPage();
         y = margin;
         return true;
@@ -341,7 +405,7 @@ export default function App() {
     };
 
     // Header
-    doc.setFontSize(12);
+    doc.setFontSize(14);
     doc.setFont('times', 'bold');
     const nameWidth = doc.getTextWidth(data.name);
     doc.text(data.name, (pageWidth - nameWidth) / 2, y);
@@ -349,8 +413,10 @@ export default function App() {
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    const contactWidth = doc.getTextWidth(data.contact);
-    doc.text(data.contact, (pageWidth - contactWidth) / 2, y);
+    // Ensure contact is pipe separated for HackerRank style
+    const contactText = data.contact.replace(/,/g, ' | ').replace(/\s*\|\s*/g, ' | ');
+    const contactWidth = doc.getTextWidth(contactText);
+    doc.text(contactText, (pageWidth - contactWidth) / 2, y);
     y += 10;
 
     const drawSectionHeader = (title: string) => {
@@ -358,11 +424,11 @@ export default function App() {
       doc.setFontSize(12);
       doc.setFont('times', 'bold');
       doc.text(title.toUpperCase(), margin, y);
-      y += 2;
+      y += 1.5;
       doc.setDrawColor(0, 0, 0);
-      doc.setLineWidth(0.5);
+      doc.setLineWidth(0.4);
       doc.line(margin, y, pageWidth - margin, y);
-      y += 7;
+      y += 6;
     };
 
     // Summary
@@ -370,47 +436,54 @@ export default function App() {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     const summaryLines = doc.splitTextToSize(data.summary, contentWidth);
+    checkPageBreak(summaryLines.length * 5);
     doc.text(summaryLines, margin, y);
-    y += (summaryLines.length * 5) + 8;
+    y += (summaryLines.length * 5) + 6;
 
     // Technical Skills
     drawSectionHeader('Technical Skills');
     data.technicalSkills.forEach(skillGroup => {
-      checkPageBreak(6);
-      doc.setFont('times', 'bold');
-      doc.text(`• ${skillGroup.category}: `, margin, y);
-      const categoryWidth = doc.getTextWidth(`• ${skillGroup.category}: `);
-      doc.setFont('helvetica', 'normal');
       const skillsText = skillGroup.skills.join(', ');
+      const categoryLabel = `${skillGroup.category}: `;
+      const categoryWidth = doc.getTextWidth(categoryLabel);
       const skillsLines = doc.splitTextToSize(skillsText, contentWidth - categoryWidth);
+      
+      checkPageBreak((skillsLines.length * 5) + 1);
+      
+      doc.setFont('times', 'bold');
+      doc.text(categoryLabel, margin, y);
+      
+      doc.setFont('helvetica', 'normal');
       doc.text(skillsLines, margin + categoryWidth, y);
-      y += (skillsLines.length * 5) + 1;
+      y += (skillsLines.length * 5) + 1.5;
     });
-    y += 5;
+    y += 4;
 
     // Internships
     if (data.internships && data.internships.length > 0) {
       drawSectionHeader('Internships');
       data.internships.forEach(intern => {
-        checkPageBreak(15);
+        checkPageBreak(12);
         doc.setFontSize(10);
         doc.setFont('times', 'bold');
         doc.text(intern.title, margin, y);
+        
+        doc.setFont('helvetica', 'bold');
+        const companyText = ` | ${intern.company}`;
+        doc.text(companyText, margin + doc.getTextWidth(intern.title), y);
+        
         doc.setFont('helvetica', 'normal');
         const durationWidth = doc.getTextWidth(intern.duration);
         doc.text(intern.duration, pageWidth - margin - durationWidth, y);
         y += 5;
-        doc.setFont('helvetica', 'italic');
-        doc.text(intern.company, margin, y);
-        y += 6;
-        doc.setFont('helvetica', 'normal');
+        
         intern.bullets.forEach(bullet => {
           const bulletLines = doc.splitTextToSize(`• ${bullet}`, contentWidth - 5);
           checkPageBreak(bulletLines.length * 5);
           doc.text(bulletLines, margin + 5, y);
           y += (bulletLines.length * 5);
         });
-        y += 4;
+        y += 2;
       });
       y += 2;
     }
@@ -418,35 +491,34 @@ export default function App() {
     // Projects
     drawSectionHeader('Projects');
     data.projects.forEach(project => {
-      checkPageBreak(15);
+      checkPageBreak(12);
       doc.setFontSize(10);
       doc.setFont('times', 'bold');
       doc.text(project.name, margin, y);
+      
+      if (project.techStack) {
+        doc.setFont('helvetica', 'italic');
+        const tsText = ` (${project.techStack})`;
+        doc.text(tsText, margin + doc.getTextWidth(project.name), y);
+      }
+
       if (project.link) {
-        const linkWidth = doc.getTextWidth('Link');
         doc.setFont('helvetica', 'normal');
-        doc.text('Link', pageWidth - margin - linkWidth, y);
+        doc.setTextColor(0, 0, 255);
+        const linkText = 'Project Link';
+        const linkWidth = doc.getTextWidth(linkText);
+        doc.text(linkText, pageWidth - margin - linkWidth, y);
+        doc.setTextColor(0, 0, 0);
       }
       y += 5;
-      doc.setFont('helvetica', 'italic');
-      doc.text(project.subtitle, margin, y);
-      y += 6;
-      if (project.techStack) {
-        doc.setFont('times', 'bold');
-        doc.text(`Tech Stack: `, margin, y);
-        const tsWidth = doc.getTextWidth(`Tech Stack: `);
-        doc.setFont('helvetica', 'normal');
-        doc.text(project.techStack, margin + tsWidth, y);
-        y += 6;
-      }
-      doc.setFont('helvetica', 'normal');
+      
       project.bullets.forEach(bullet => {
         const bulletLines = doc.splitTextToSize(`• ${bullet}`, contentWidth - 5);
         checkPageBreak(bulletLines.length * 5);
         doc.text(bulletLines, margin + 5, y);
         y += (bulletLines.length * 5);
       });
-      y += 4;
+      y += 2;
     });
     y += 2;
 
@@ -457,13 +529,15 @@ export default function App() {
       doc.setFontSize(10);
       doc.setFont('times', 'bold');
       doc.text(edu.school, margin, y);
+      
       doc.setFont('helvetica', 'normal');
       const durationWidth = doc.getTextWidth(edu.duration);
       doc.text(edu.duration, pageWidth - margin - durationWidth, y);
       y += 5;
-      doc.text(edu.degree, margin, y);
-      y += 5;
-      doc.text(edu.gpa, margin, y);
+      
+      doc.setFont('helvetica', 'italic');
+      doc.text(`${edu.degree} | ${edu.gpa}`, margin, y);
+      doc.setFont('helvetica', 'normal');
       y += 8;
     });
 
@@ -642,12 +716,12 @@ export default function App() {
                   </h3>
                   <div className="space-y-4">
                     {[
-                      { step: "1. Frontend Layer", desc: "React-based UI for file uploads and real-time analysis visualization." },
-                      { step: "2. Parsing Layer", desc: "Extracts raw text from PDF and DOCX using specialized parsers." },
-                      { step: "3. NLP Engine", desc: "Lemmatization, tokenization, and feature extraction via Gemini AI." },
-                      { step: "4. Matching Engine", desc: "Computes cosine similarity and skill overlap between Resume and JD." },
-                      { step: "5. ATS Scoring", desc: "Weighted formula: 50% Skills + 30% Keywords + 20% Quality." },
-                      { step: "6. Decision Engine", desc: "Triggers Optimization Engine if ATS score is below 85%." },
+                      { step: "1. Rate Limiting", desc: "Prevents abuse and ensures fair resource distribution for 5000+ concurrent users." },
+                      { step: "2. Job Queue (BullMQ)", desc: "Decouples requests from execution, buffering spikes in traffic to prevent 503 errors." },
+                      { step: "3. Redis Caching", desc: "Instantly serves results for identical Resume/JD pairs, reducing redundant AI calls." },
+                      { step: "4. Background Workers", desc: "Scalable workers process jobs asynchronously with exponential backoff retries." },
+                      { step: "5. NLP Engine (Gemini)", desc: "Advanced analysis and optimization with automatic retry on model high demand." },
+                      { step: "6. Real-time Polling", desc: "Frontend polls for job completion, providing a seamless 'processing' experience." },
                     ].map((item, i) => (
                       <div key={i} className="flex gap-4">
                         <div className="flex-shrink-0 w-8 h-8 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-sm">
@@ -693,17 +767,22 @@ export default function App() {
                       Persistence Layer
                     </h3>
                     <p className="text-sm text-slate-500 leading-relaxed">
-                      All analyses and user preferences are stored in a secure NoSQL database (Firestore), 
-                      enabling history tracking and personalized optimization.
+                      All analyses and user preferences are stored in Firestore, 
+                      while Redis handles real-time job queuing and result caching 
+                      for high-performance scaling.
                     </p>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-3 gap-4">
                       <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                         <span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Database</span>
                         <span className="text-sm font-bold text-slate-800">Firestore</span>
                       </div>
                       <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Cache/Queue</span>
+                        <span className="text-sm font-bold text-slate-800">Redis</span>
+                      </div>
+                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                         <span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Auth</span>
-                        <span className="text-sm font-bold text-slate-800">Firebase Auth</span>
+                        <span className="text-sm font-bold text-slate-800">Firebase</span>
                       </div>
                     </div>
                   </div>
